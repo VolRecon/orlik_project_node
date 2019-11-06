@@ -7,8 +7,6 @@ var bodyParser = require('body-parser')
 
 var app = express();
 app.use(cors());
-var min;
-var max;
 var day;
 var hours;
 var array;
@@ -93,7 +91,7 @@ function getAccessToken(oAuth2Client, callback) {
 
 var tabEvents = [];
 
-function listEvents(auth, callback) {
+function listEvents(auth, min, max, callback) {
   const calendar = google.calendar({ version: 'v3', auth });
   tabEvents = [];
   calendar.events.list({
@@ -107,8 +105,6 @@ function listEvents(auth, callback) {
     if (err) return console.log('The API returned an error: ' + err);
     const events = res.data.items;
     if (events.length) {
-      var sentence = 'The quick brown fox jumps over the lazy dog.';
-      var word = 'fox';
       events.map((event, i) => {
         const start = event.start.dateTime || event.start.date;
         tabEvents.push(`${start} - ${event.end.dateTime} - ${event.summary} - ${event.description}`);
@@ -127,8 +123,6 @@ function listEvents(auth, callback) {
 */
 
 app.post("/rezerwacja", (req, res) => {
-  min = req.body.min;
-  max = req.body.max;
   fs.readFile('credentials.json', (err, content) => {
     if (err) {
       return console.log('Error loading client secret file:', err);
@@ -138,7 +132,7 @@ app.post("/rezerwacja", (req, res) => {
       // authorize(JSON.parse(content), listEvents)
 
       authorize(JSON.parse(content), function (token) {
-        listEvents(token, function (tab) {
+        listEvents(token, req.body.min, req.body.max, function (tab) {
           console.log("Json Callback Events: ", tab);
           setTimeout(function () { res.send(tab); }, 500);
         });
@@ -148,127 +142,67 @@ app.post("/rezerwacja", (req, res) => {
 });
 
 function addEvents(auth, callback) {
-  let hours_Duze_complite = [];
-  let hours_Male_complite = [];
 
-  hours_Duze_complite = group_tab(hours[0].godziny.sort(compareNumbers));
-  hours_Male_complite = group_tab(hours[1].godziny.sort(compareNumbers));
+  let hours_Duze_complite = group_tab(hours[0].godziny.sort(compareNumbers))
+  let hours_Male_complite = group_tab(hours[1].godziny.sort(compareNumbers))
+  let events = [];
 
-  let numbers = array.filter(item => item == null);
-
-  //wymyslilem na szybko cos takiego poniewaz zbyt szybkie dodawanie eventow powoduje ze google blokuje
-  //to jest jeszcze do zmiany
-  rezerwationFinal(rezerwationComplite(hours_Duze_complite, numbers), "Duże Boisko", 2, auth, callback)
-  .then( message => {
-      rezerwationFinal(rezerwationComplite(hours_Male_complite, numbers), "Male Boisko", 4, auth, callback)
-  })
-
-}
-
-let rezerwationFinal = function(hours_complite, summary, colorId, auth, callback) {
-  return new Promise(function(resolve, reject){
-    for (let i = 0; i < hours_complite.length; i++) {
-      if (hours_complite[i].length <= 1) {
-        var event = {
-          'summary': summary,
-          'colorId': colorId,
-          'description': "<b> Imię: </b>" + name + "\n" + "<b> Telefon: </b>" + phone + "\n" + "<b> Wstęp: </b>" + wstep,
-          'start': {
-            'dateTime': day + "T" + hours_complite[i] + ":00:00+02:00",
-            'timeZone': 'Europe/Warsaw',
-          },
-          'end': {
-            'dateTime': day + "T" + (Number(hours_complite[i]) + Number(1)) + ':00:00+02:00',
-            'timeZone': 'Europe/Warsaw',
-          },
-          'reminders': {
-            'useDefault': false,
-            'overrides': [
-              { 'method': 'email', 'minutes': 12 * 60 }
-            ],
-          },
-        };
-        const calendar = google.calendar({ version: 'v3', auth });
-        calendar.events.insert({
-          auth: auth,
-          calendarId: 'primary',
-          resource: event,
-        }, function (err, event) {
-          if (err) {
-            console.log('There was an error contacting the Calendar service: ' + err);
-            return;
-          } else {
-            console.log('Event created !');
-            if (i+1 == hours_complite.length) {
-              callback("ready");
-              resolve();
-            }
-          }
-        });
-  
-      } else {
-        var event = {
-          'summary': summary,
-          'colorId': colorId,
-          'description': "<b> Imię: </b>" + name + "\n" + "<b> Telefon: </b>" + phone + "\n" + "<b> Wstęp: </b>" + wstep,
-          'start': {
-            'dateTime': day + "T" + (Math.min(...hours_complite[i])) + ":00:00+02:00",
-            'timeZone': 'Europe/Warsaw',
-          },
-          'end': {
-            'dateTime': day + "T" + (Math.max(...hours_complite[i]) + Number(1)) + ':00:00+02:00',
-            'timeZone': 'Europe/Warsaw',
-          },
-          'reminders': {
-            'useDefault': false,
-            'overrides': [
-              { 'method': 'email', 'minutes': 12 * 60 }
-            ],
-          },
-        };
-        const calendar = google.calendar({ version: 'v3', auth });
-        calendar.events.insert({
-          auth: auth,
-          calendarId: 'primary',
-          resource: event,
-        }, function (err, event) {
-          if (err) {
-            console.log('There was an error contacting the Calendar service: ' + err);
-            return;
-          } else {
-            console.log('Event created !');
-            if (i+1 == hours_complite.length) {
-              callback("ready");
-              resolve();
-            }
-          }
-        });
-      }
-    }
-  })
-}
-
-function rezerwationComplite(hours_complite, numbers) {
-  for (let i = 0; i < hours_complite.length; i++) {
-    for (let j = 0; j < hours_complite[i].length; j++) {
-      if (hours_complite[i][j] == 0) {
-        hours_complite[i][j] = 16 + numbers.length
-      } else if (hours_complite[i][j] === 1) {
-        hours_complite[i][j] = 17 + numbers.length
-      } else if (hours_complite[i][j] === 2) {
-        hours_complite[i][j] = 18 + numbers.length
-      } else if (hours_complite[i][j] === 3) {
-        hours_complite[i][j] = 19 + numbers.length
-      } else if (hours_complite[i][j] === 4) {
-        hours_complite[i][j] = 20 + numbers.length
-      } else if (hours_complite[i][j] === 5) {
-        hours_complite[i][j] = 21 + numbers.length
-      } else {
-        //console.log("To jest pusta tablica");
-      }
-    }
+  for (let i = 0; i < hours_Duze_complite.length; i++){
+    events.push(rezerwationFinal(hours_Duze_complite[i], "Duże Boisko", 2, auth, callback))
   }
-  return hours_complite;
+
+  for (let i = 0; i < hours_Male_complite.length; i++){
+    events.push(rezerwationFinal(hours_Male_complite[i], "Male Boisko", 4, auth, callback))
+  }
+
+  for (let i = 0; i < events.length; i++){
+    setTimeout(function(){
+      createReservations(i, events.length, events[i], auth, callback)
+    }, 500 * i);
+  }
+}
+
+function createReservations(i, length, event, auth, callback){
+  const calendar = google.calendar({ version: 'v3', auth });
+
+  calendar.events.insert({
+    auth: auth,
+    calendarId: 'primary',
+    resource: event,
+  }, function (err, event) {
+    if (err) {
+      console.log('There was an error contacting the Calendar service: ' + err);
+      return;
+    } else {
+      console.log('Event created !');
+      if(i === length-1){
+        callback("ready"); 
+      }
+    }
+  });
+}
+
+function rezerwationFinal(value, summary, colorId, auth, callback) {
+  var event = {
+      'summary': summary,
+      'colorId': colorId,
+      'description': "<b> Imię: </b>" + name + "\n" + "<b> Telefon: </b>" + phone + "\n" + "<b> Wstęp: </b>" + wstep,
+      'start': {
+        'dateTime': day + "T" + Number(value[0]) + ":00:00+01:00",
+        'timeZone': 'Europe/Warsaw',
+      },
+      'end': {
+        'dateTime': day + "T" + (Number(value[0]) + value.length) + ':00:00+01:00',
+        'timeZone': 'Europe/Warsaw',
+      },
+      'reminders': {
+        'useDefault': false,
+        'overrides': [
+          { 'method': 'email', 'minutes': 12 * 60 }
+        ],
+      },
+    };
+  return event;
 }
 
 app.post("/rezerwacja/finalizacja", (req, res) => {
