@@ -7,9 +7,6 @@ var bodyParser = require('body-parser')
 
 var app = express();
 app.use(cors());
-var day;
-var hours;
-var array;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -26,20 +23,13 @@ const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 // time.
 const TOKEN_PATH = 'token.json';
 
-// Load client secrets from a local file.
-
-// fs.readFile('credentials.json', (err, content) => {
-//   if (err) return console.log('Error loading client secret file:', err);
-//   // Authorize a client with credentials, then call the Google Calendar API.
-//   authorize(JSON.parse(content), listEvents);
-// }); 
-
 /**
  * Create an OAuth2 client with the given credentials, and then execute the
  * given callback function.
  * @param {Object} credentials The authorization client credentials.
  * @param {function} callback The callback to call with the authorized client.
  */
+
 function authorize(credentials, callback) {
   const { client_secret, client_id, redirect_uris } = credentials.installed;
   const oAuth2Client = new google.auth.OAuth2(
@@ -134,6 +124,7 @@ app.post("/rezerwacja", (req, res) => {
       authorize(JSON.parse(content), function (token) {
         listEvents(token, req.body.min, req.body.max, function (tab) {
           console.log("Json Callback Events: ", tab);
+          // dla ladniejszej animacji w przegladarce
           setTimeout(function () { res.send(tab); }, 500);
         });
       });
@@ -141,58 +132,57 @@ app.post("/rezerwacja", (req, res) => {
   });
 });
 
-function addEvents(auth, callback) {
+function addEvents(req, auth, callback) {
 
-  let hours_Duze_complite = group_tab(hours[0].godziny.sort(compareNumbers))
-  let hours_Male_complite = group_tab(hours[1].godziny.sort(compareNumbers))
+  let hours_Duze_complite = group_tab(req.body.hours[0].godziny.sort(compareNumbers))
+  let hours_Male_complite = group_tab(req.body.hours[1].godziny.sort(compareNumbers))
+  const calendar = google.calendar({ version: 'v3', auth });
   let events = [];
 
   for (let i = 0; i < hours_Duze_complite.length; i++){
-    events.push(rezerwationFinal(hours_Duze_complite[i], "Duże Boisko", 2, auth, callback))
+    events.push(rezerwationFinal(req, hours_Duze_complite[i], "Duże Boisko", 2))
   }
 
   for (let i = 0; i < hours_Male_complite.length; i++){
-    events.push(rezerwationFinal(hours_Male_complite[i], "Male Boisko", 4, auth, callback))
+    events.push(rezerwationFinal(req, hours_Male_complite[i], "Male Boisko", 4))
   }
 
-  for (let i = 0; i < events.length; i++){
-    setTimeout(function(){
-      createReservations(i, events.length, events[i], auth, callback)
-    }, 500 * i);
-  }
-}
-
-function createReservations(i, length, event, auth, callback){
-  const calendar = google.calendar({ version: 'v3', auth });
-
-  calendar.events.insert({
-    auth: auth,
-    calendarId: 'primary',
-    resource: event,
-  }, function (err, event) {
-    if (err) {
-      console.log('There was an error contacting the Calendar service: ' + err);
-      return;
-    } else {
-      console.log('Event created !');
-      if(i === length-1){
-        callback("ready"); 
-      }
+  (async function loop() {
+    for (let i = 0; i < events.length; i++) {
+      await new Promise(resolve => 
+        calendar.events.insert({
+          auth: auth,
+          calendarId: 'primary',
+          resource: events[i],
+        }, function (err, event) {
+          if (err) {
+            console.log('There was an error contacting the Calendar service: ' + err);
+            // callback("Błąd");
+            // return;
+          } else {
+            console.log('Event created !');
+            resolve();
+            if(i === events.length-1){
+              callback(); 
+            }
+          }
+        })
+      );
     }
-  });
+  })();
 }
 
-function rezerwationFinal(value, summary, colorId, auth, callback) {
+function rezerwationFinal(req, value, summary, colorId, auth, callback) {
   var event = {
       'summary': summary,
       'colorId': colorId,
-      'description': "<b> Imię: </b>" + name + "\n" + "<b> Telefon: </b>" + phone + "\n" + "<b> Wstęp: </b>" + wstep,
+      'description': "<b> Imię: </b>" + req.body.name + "\n" + "<b> Telefon: </b>" + req.body.phone + "\n" + "<b> Wstęp: </b>" + req.body.wstep,
       'start': {
-        'dateTime': day + "T" + Number(value[0]) + ":00:00+01:00",
+        'dateTime': req.body.day + "T" + Number(value[0]) + ":00:00+01:00",
         'timeZone': 'Europe/Warsaw',
       },
       'end': {
-        'dateTime': day + "T" + (Number(value[0]) + value.length) + ':00:00+01:00',
+        'dateTime': req.body.day + "T" + (Number(value[0]) + value.length) + ':00:00+01:00',
         'timeZone': 'Europe/Warsaw',
       },
       'reminders': {
@@ -206,21 +196,14 @@ function rezerwationFinal(value, summary, colorId, auth, callback) {
 }
 
 app.post("/rezerwacja/finalizacja", (req, res) => {
-  name = req.body.name;
-  phone = req.body.phone;
-  wstep = req.body.wstep;
-  day = req.body.day;
-  hours = req.body.hours;
-  array = req.body.array;
-
   fs.readFile('credentials.json', (err, content) => {
     if (err) return console.log('Error loading client secret file:', err);
     // Authorize a client with credentials, then call the Google Calendar API.
     // authorize(JSON.parse(content), addEvents);
     authorize(JSON.parse(content), function (token) {
-      addEvents(token, function (tab) {
+      addEvents(req, token, function (tab) {
         setTimeout(function () {
-          res.end(JSON.stringify({ status: tab }));
+          res.end(JSON.stringify(tab));
         }, 1000);
       });
     });
@@ -232,7 +215,7 @@ function compareNumbers(a, b) {
 }
 
 function group_tab(sort_tab) {
-  helper_tab = []
+  var helper_tab = []
   var end_tab = []
   var prev_value
   var curr_value
